@@ -1,3 +1,8 @@
-pdfplumber 
 tiktoken
 openai
+
+pdfplumber 
+fpdf
+fpdf2
+
+black
