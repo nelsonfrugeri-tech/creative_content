@@ -1,0 +1,126 @@
+'''
+response = co.chat(
+message = query,
+documents=docs_dict
+)
+print(response.text)
+Resultado:
+O filme gerou uma receita bruta mundial de mais de $677 milhões, ou $773 milhões com sub
+Estamos destacando parte do texto porque o modelo indicou que a fonte desses trechos de texto é o primeiro documento que passamos:
+citations=[ChatCitation(start=21, end=36, text='receita bruta mundial', document_ids=['do
+documents=[{'id': 'doc_0', 'text': 'O filme teve uma receita bruta mundial de mais de $677 milhões
+Exemplo: RAG com Modelos Locais
+Vamos agora replicar essa funcionalidade básica com modelos locais. Perderemos a capacidade de fazer citações de trechos e o modelo local menor não funcionará tão bem quanto o modelo gerenciado maior, mas é útil para demonstrar o fluxo. Começaremos baixando um modelo quantizado.
+Carregando o modelo de geração
+Começamos baixando nosso modelo:
+!wget https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi
+Usando llama.cpp, llama-cpp-python e LangChain, carregamos o modelo de geração de texto:
+from langchain import LlamaCpp
+# Certifique-se de que o caminho do modelo está correto para o seu sistema!
+llm = LlamaCpp(
+model_path="Phi-3-mini-4k-instruct-fp16.gguf",
+n_gpu_layers=-1,
+max_tokens=500,
+n_ctx=2048,
+seed=42,
+verbose=False
+)
+Carregando o modelo de embedding
+Vamos agora carregar um modelo de linguagem de embedding. Neste exemplo, escolheremos o modelo BAAI/bge-small-en-v1.5. No momento da escrita, ele está bem posicionado no ranking MTEB para modelos de embedding e é relativamente pequeno:
+from langchain.embeddings.huggingface import HuggingFaceEmbeddings
+# Modelo de embedding para converter texto em representações numéricas
+embedding_model = HuggingFaceEmbeddings(
+model_name='thenlper/gte-small'
+)
+Agora podemos usar o modelo de embedding para configurar nosso banco de dados vetorial:
+from langchain.vectorstores import FAISS
+# Criar um banco de dados vetorial local
+db = FAISS.from_texts(texts, embedding_model)
+O prompt RAG
+Um template de prompt desempenha um papel vital no pipeline RAG. É o local central onde comunicamos os documentos relevantes ao LLM. Para isso, criaremos uma variável de entrada adicional chamada contexto que pode fornecer ao LLM os documentos recuperados:
+from langchain import PromptTemplate
+# Criar um template de prompt
+template = """<|user|>
+Informações relevantes:
+{context}
+Forneça uma resposta concisa à seguinte pergunta usando as informações relevantes fornecidas:
+{question}<|end|>
+<|assistant|>"""
+prompt = PromptTemplate(
+template=template,
+input_variables=["context", "question"]
+)
+from langchain.chains import RetrievalQA
+# Pipeline RAG
+rag = RetrievalQA.from_chain_type(
+llm=llm,
+chain_type='stuff',
+retriever=db.as_retriever(),
+chain_type_kwargs={
+"prompt": prompt
+},
+verbose=True
+)
+Agora estamos prontos para chamar o modelo e fazer uma pergunta:
+rag.invoke('Renda gerada')
+Resultado:
+A renda gerada pelo filme em 2014 foi de mais de $677 milhões mundialmente. Isso fez
+Como sempre, podemos ajustar o prompt para controlar a geração do modelo (por exemplo, comprimento e tom da resposta).
+Técnicas Avançadas de RAG
+Existem várias técnicas adicionais para melhorar o desempenho dos sistemas RAG. Algumas delas estão descritas aqui.
+Reescrita de consulta
+Se o sistema RAG for um chatbot, a implementação simples de RAG anterior provavelmente terá dificuldades com a etapa de busca se uma pergunta for muito verbosa ou para se referir ao contexto em mensagens anteriores na conversa. Por isso, é uma boa ideia usar um LLM para reescrever a consulta em uma que ajude a etapa de recuperação a obter a informação correta. Um exemplo disso é uma mensagem como:
+Pergunta do Usuário: “Temos um ensaio para entregar amanhã. Temos que escrever sobre algum animal. Eu amo pinguins. Eu poderia escrever sobre eles. Mas eu também poderia escrever sobre golfinhos. Eles são animais? Talvez. Vamos fazer golfinhos. Onde eles vivem, por exemplo?”
+Isso deve ser reescrito em uma consulta como:
+Consulta: “Onde vivem os golfinhos”
+Esse comportamento de reescrita pode ser feito através de um prompt (ou através de uma chamada de API). A API da Cohere, por exemplo, tem um modo dedicado de reescrita de consulta para co.chat.
+RAG de múltiplas consultas
+A próxima melhoria que podemos introduzir é estender a reescrita de consulta para ser capaz de buscar múltiplas consultas se mais de uma for necessária para responder a uma pergunta específica. Tome como exemplo:
+Pergunta do Usuário: “Compare os resultados financeiros da Nvidia em 2020 vs. 2023”
+Podemos encontrar um documento que contenha os resultados de ambos os anos, mas mais provavelmente, é melhor fazer duas consultas de busca:
+Consulta 1: “Resultados financeiros da Nvidia em 2020”
+Consulta 2: “Resultados financeiros da Nvidia em 2023”
+Apresentamos então os principais resultados de ambas as consultas ao modelo para geração fundamentada. Uma pequena melhoria adicional aqui é também dar ao reescritor de consultas a opção de determinar se nenhuma busca é necessária e se ele pode gerar diretamente uma resposta confiante sem buscar.
+RAG de múltiplos saltos
+Uma pergunta mais avançada pode exigir uma série de consultas sequenciais. Tome como exemplo uma pergunta como:
+Pergunta do Usuário: “Quem são os maiores fabricantes de carros em 2023? Cada um deles fabrica veículos elétricos ou não?”
+Para responder a isso, o sistema deve primeiro buscar:
+Passo 1, Consulta 1: “maiores fabricantes de carros 2023”
+Depois de obter essa informação (o resultado sendo Toyota, Volkswagen e Hyundai), ele deve fazer perguntas de acompanhamento:
+Passo 2, Consulta 1: “veículos elétricos da Toyota Motor Corporation”
+Passo 2, Consulta 2: “veículos elétricos da Volkswagen AG”
+Passo 2, Consulta 3: “veículos elétricos da Hyundai Motor Company”
+Roteamento de consultas
+Uma melhoria adicional é dar ao modelo a capacidade de buscar em múltiplas fontes de dados. Podemos, por exemplo, especificar para o modelo que se ele receber uma pergunta sobre RH, ele deve buscar no sistema de informações de RH da empresa (por exemplo, Notion), mas se a pergunta for sobre dados de clientes, ele deve buscar no sistema de gerenciamento de relacionamento com o cliente (CRM) (por exemplo, Salesforce).
+RAG Agente
+Você pode agora ver que a lista de melhorias anteriores lentamente delega mais e mais responsabilidade ao LLM para resolver problemas cada vez mais complexos. Isso depende da capacidade do LLM de avaliar as necessidades de informação necessárias, bem como sua capacidade de utilizar múltiplas fontes de dados. Essa nova natureza do LLM começa a se aproximar cada vez mais de um agente que atua no mundo. As fontes de dados também podem agora ser abstraídas em ferramentas. Vimos, por exemplo, que podemos buscar no Notion, mas da mesma forma, devemos ser capazes de postar no Notion também.
+Nem todos os LLMs terão as capacidades RAG mencionadas aqui. No momento da escrita, provavelmente apenas os maiores modelos gerenciados podem tentar esse comportamento. Felizmente, o Command R+ da Cohere se destaca nessas tarefas e está disponível como um modelo de pesos abertos também.
+Avaliação de RAG
+Ainda há desenvolvimentos em andamento sobre como avaliar modelos RAG. Um bom artigo para ler sobre este tópico é “Avaliando a verificabilidade em motores de busca generativos” (2023), que realiza avaliações humanas em diferentes sistemas de busca generativos.
+Ele avalia os resultados em quatro eixos:
+Fluência
+Se o texto gerado é fluente e coeso.
+Utilidade percebida
+Se a resposta gerada é útil e informativa.
+Recall de citação
+A proporção de declarações geradas sobre o mundo externo que são totalmente suportadas por suas citações.
+Precisão de citação
+A proporção de citações geradas que suportam suas declarações associadas.
+Embora a avaliação humana seja sempre preferida, existem abordagens que tentam automatizar essas avaliações fazendo com que um LLM capaz atue como juiz (chamado LLM-como-juiz) e pontue as diferentes gerações nos diferentes eixos. Ragas é uma biblioteca de software que faz exatamente isso. Ela também pontua algumas métricas adicionais úteis como:
+Fidelidade
+Se a resposta é consistente com o contexto fornecido
+Relevância da resposta
+Quão relevante é a resposta para a pergunta
+O site de documentação do Ragas fornece mais detalhes sobre as fórmulas para realmente calcular essas métricas.
+Resumo
+Neste capítulo, vimos diferentes maneiras de usar modelos de linguagem para melhorar os sistemas de busca existentes e até mesmo ser o núcleo de novos sistemas de busca mais poderosos. Isso inclui:
+Recuperação densa, que depende da similaridade de embeddings de texto. Esses são sistemas que embutem uma consulta de busca e recuperam os documentos com os embeddings mais próximos ao embedding da consulta.
+Reordenadores, sistemas (como monoBERT) que olham para uma consulta e resultados candidatos e pontuam a relevância de cada documento para essa consulta. Essas pontuações de relevância são então usadas para ordenar os resultados pré-selecionados de acordo com sua relevância para a consulta, muitas vezes produzindo um ranking de resultados melhorado.
+RAG, onde sistemas de busca têm um LLM generativo no final do pipeline para formular uma resposta com base nos documentos recuperados enquanto cita as fontes.
+Também vimos um dos possíveis métodos de avaliar sistemas de busca. A precisão média permite-nos pontuar sistemas de busca para poder comparar em uma suíte de testes de consultas e sua relevância conhecida para as consultas de teste. Avaliar sistemas RAG requer múltiplos eixos, no entanto, como fidelidade, fluência e outros que podem ser avaliados por humanos ou por LLM-como-juiz.
+No próximo capítulo, exploraremos como os modelos de linguagem podem ser tornados multimodais e raciocinar não apenas sobre texto, mas também sobre imagens.
+1
+Patrick Lewis et al. “Geração aumentada por recuperação para tarefas de NLP intensivas em conhecimento.” Avanços em Sistemas de Processamento de Informação Neural 33 (2020): 9459–9474.
+2
+Nelson F. Liu, Tianyi Zhang e Percy Liang. “Avaliando a verificabilidade em motores de busca generativos.” arXiv preprint arXiv:2304.09848 (2023).
+'''

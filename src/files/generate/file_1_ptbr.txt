@@ -1,0 +1,272 @@
+Capítulo 8. Busca Semântica e Recuperação - Geração Aumentada
+
+A busca foi uma das primeiras aplicações de modelos de linguagem a ver uma ampla adoção na indústria. Meses após a publicação do artigo seminal "BERT: Pre-training of deep bidirectional transformers for language understanding" (2018), o Google anunciou que estava usando o BERT para alimentar o Google Search, representando "um dos maiores avanços na história da Busca". Não querendo ficar para trás, o Microsoft Bing também declarou que "a partir de abril deste ano, usamos grandes modelos de transformadores para entregar as maiores melhorias de qualidade aos nossos clientes do Bing no último ano".
+
+Isso é um claro testemunho do poder e da utilidade desses modelos. Sua adição melhora instantaneamente e dramaticamente alguns dos sistemas mais maduros e bem mantidos dos quais bilhões de pessoas ao redor do planeta dependem. A habilidade que eles adicionam é chamada de busca semântica, que permite buscar por significado, e não simplesmente por correspondência de palavras-chave.
+
+Em uma trilha separada, a rápida adoção de modelos de geração de texto levou muitos usuários a fazer perguntas aos modelos e esperar respostas factuais. E embora os modelos fossem capazes de responder fluentemente e com confiança, suas respostas nem sempre eram corretas ou atualizadas. Esse problema cresceu e ficou conhecido como "alucinações" do modelo, e uma das principais maneiras de reduzi-lo é construir sistemas que possam recuperar informações relevantes e fornecê-las ao LLM para ajudá-lo a gerar respostas mais factuais. Esse método, chamado RAG, é uma das aplicações mais populares dos LLMs.
+
+Visão Geral da Busca Semântica e RAG
+
+Há muita pesquisa sobre como usar melhor os modelos de linguagem para busca. Três categorias amplas desses modelos são recuperação densa, reranking e RAG. Aqui está uma visão geral dessas três categorias que o restante do capítulo explicará em mais detalhes:
+
+Recuperação Densa
+
+Os sistemas de recuperação densa dependem do conceito de embeddings, o mesmo conceito que encontramos nos capítulos anteriores, e transformam o problema de busca em recuperar os vizinhos mais próximos da consulta de busca (após a consulta e os documentos serem convertidos em embeddings). A Figura 8-1 mostra como a recuperação densa pega uma consulta de busca, consulta seu arquivo de textos e gera um conjunto de resultados relevantes.
+
+Figura 8-1. A recuperação densa é um dos principais tipos de busca semântica, dependendo da similaridade dos embeddings de texto para recuperar resultados relevantes.
+
+Reranking
+
+Os sistemas de busca são frequentemente pipelines de múltiplas etapas. Um modelo de linguagem de reranking é uma dessas etapas e é responsável por pontuar a relevância de um subconjunto de resultados em relação à consulta; a ordem dos resultados é então alterada com base nessas pontuações. A Figura 8-2 mostra como os rerankers são diferentes da recuperação densa, pois eles recebem uma entrada adicional: um conjunto de resultados de busca de uma etapa anterior no pipeline de busca.
+
+Figura 8-2. Os rerankers, o segundo tipo principal de busca semântica, pegam uma consulta de busca e uma coleção de resultados, e os reordenam por relevância, muitas vezes resultando em resultados vastamente melhorados.
+
+RAG
+
+A crescente capacidade dos LLMs de geração de texto levou a um novo tipo de sistemas de busca que incluem um modelo que gera uma resposta em resposta a uma consulta. A Figura 8-3 mostra um exemplo de tal sistema de busca generativa.
+
+A busca generativa é um subconjunto de uma categoria mais ampla de sistemas melhor chamada de sistemas RAG. Estes são sistemas de geração de texto que incorporam capacidades de busca para reduzir alucinações, aumentar a factualidade e/ou fundamentar o modelo de geração em um conjunto de dados específico.
+
+Figura 8-3. Um sistema RAG formula uma resposta a uma pergunta e (de preferência) cita suas fontes de informação.
+
+O restante do capítulo cobre esses três tipos de sistemas em mais detalhes. Embora essas sejam as principais categorias, elas não são as únicas aplicações de LLMs no domínio da busca.
+
+Busca Semântica com Modelos de Linguagem
+
+Vamos agora mergulhar em mais detalhes sobre as principais categorias de sistemas que podem melhorar as capacidades de busca de nossos modelos de linguagem. Começaremos com a recuperação densa e depois passaremos pelo reranking e RAG.
+
+Recuperação Densa
+
+Lembre-se de que os embeddings transformam texto em representações numéricas. Essas podem ser pensadas como pontos no espaço, como podemos ver na Figura 8-4. Pontos que estão próximos significam que o texto que eles representam é semelhante. Então, neste exemplo, o texto 1 e o texto 2 são mais semelhantes entre si (porque estão próximos um do outro) do que o texto 3 (porque está mais distante).
+
+Figura 8-4. A intuição dos embeddings: cada texto é um ponto e textos com significados semelhantes estão próximos uns dos outros.
+
+Essa é a propriedade usada para construir sistemas de busca. Nesse cenário, quando um usuário insere uma consulta de busca, nós embutimos a consulta, projetando-a no mesmo espaço que nosso arquivo de textos. Em seguida, simplesmente encontramos os documentos mais próximos da consulta nesse espaço, e esses seriam os resultados da busca (Figura 8-5).
+
+Figura 8-5. A recuperação densa depende da propriedade de que consultas de busca estarão próximas de seus resultados relevantes.
+
+Julgando pelas distâncias na Figura 8-5, "texto 2" é o melhor resultado para essa consulta, seguido por "texto 1". No entanto, duas perguntas podem surgir aqui:
+
+O texto 3 deve ser retornado como resultado? Essa é uma decisão para você, o designer do sistema. Às vezes, é desejável ter um limite máximo de pontuação de similaridade para filtrar resultados irrelevantes (caso o corpus não tenha resultados relevantes para a consulta).
+
+Uma consulta e seu melhor resultado são semanticamente semelhantes? Nem sempre. É por isso que os modelos de linguagem precisam ser treinados em pares de perguntas e respostas para se tornarem melhores na recuperação. Esse processo é explicado em mais detalhes no Capítulo 10.
+
+A Figura 8-6 mostra como dividimos um documento antes de proceder para embutir cada pedaço. Esses vetores de embeddings são então armazenados no banco de dados de vetores e estão prontos para recuperação.
+
+Figura 8-6. Converta alguma base de conhecimento externa em um banco de dados de vetores. Podemos então consultar esse banco de dados de vetores para obter informações sobre a base de conhecimento.
+
+Exemplo de Recuperação Densa
+
+Vamos dar uma olhada em um exemplo de recuperação densa usando o Cohere para buscar a página da Wikipedia sobre o filme Interestelar. Neste exemplo, faremos o seguinte:
+
+1. Obter o texto que queremos tornar pesquisável e aplicar algum processamento leve para dividi-lo em sentenças.
+2. Embutir as sentenças.
+3. Construir o índice de busca.
+4. Buscar e ver os resultados.
+
+Obtenha sua chave de API do Cohere inscrevendo-se em https://oreil.ly/GxrQ1. Cole-a no código a seguir. Você não terá que pagar nada para executar este exemplo.
+
+Vamos importar as bibliotecas de que precisaremos:
+
+```python
+import cohere
+import numpy as np
+import pandas as pd
+from tqdm import tqdm
+
+# Cole sua chave de API aqui. Lembre-se de não compartilhar publicamente
+api_key = ''
+# Crie e recupere uma chave de API do Cohere em os.cohere.ai
+co = cohere.Client(api_key)
+```
+
+Obtendo o arquivo de texto e dividindo-o
+
+Vamos usar a primeira seção do artigo da Wikipedia sobre o filme Interestelar. Vamos obter o texto e depois dividi-lo em sentenças:
+
+```python
+text = """
+Interestelar é um filme épico de ficção científica de 2014 co-escrito, dirigido e produzido
+Estrelado por Matthew McConaughey, Anne Hathaway, Jessica Chastain, Bill Irwin, Ellen Bu
+Situado em um futuro distópico onde a humanidade está lutando para sobreviver, o filme segue
+Os irmãos Christopher e Jonathan Nolan escreveram o roteiro, que teve suas origens
+O físico teórico do Caltech e laureado com o Nobel de Física em 2017[4] Kip Thorne foi
+O diretor de fotografia Hoyte van Hoytema filmou em película de 35 mm no formato anamórfico da Panavision
+A fotografia principal começou no final de 2013 e ocorreu em Alberta, Islândia e Lo
+Interestelar usa extensivos efeitos práticos e em miniatura e a empresa Double
+Interestelar estreou em 26 de outubro de 2014, em Los Angeles.
+Nos Estados Unidos, foi lançado pela primeira vez em película, expandindo para locais usando
+O filme teve uma receita mundial de mais de $677 milhões (e $773 milhões com re-lançamentos subsequentes)
+Recebeu aclamação por suas performances, direção, roteiro, trilha sonora, vis
+Também recebeu elogios de muitos astrônomos por sua precisão científica e p
+Interestelar foi indicado a cinco prêmios no 87º Oscar, vencendo Melhor
+"""
+# Dividir em uma lista de sentenças
+texts = text.split('.')
+# Limpar para remover espaços vazios e novas linhas
+texts = [t.strip(' \n') for t in texts]
+```
+
+Embutindo os pedaços de texto
+
+Vamos agora embutir os textos. Vamos enviá-los para a API do Cohere e obter de volta um vetor para cada texto:
+
+```python
+# Obter os embeddings
+response = co.embed(
+    texts=texts,
+    input_type="search_document",
+).embeddings
+embeds = np.array(response)
+print(embeds.shape)
+```
+
+Isso gera (15, 4096), o que indica que temos 15 vetores, cada um com tamanho 4.096.
+
+Construindo o índice de busca
+
+Antes de podermos buscar, precisamos construir um índice de busca. Um índice armazena os embeddings e é otimizado para recuperar rapidamente os vizinhos mais próximos, mesmo se tivermos um número muito grande de pontos:
+
+```python
+import faiss
+dim = embeds.shape[1]
+index = faiss.IndexFlatL2(dim)
+print(index.is_trained)
+index.add(np.float32(embeds))
+```
+
+Buscando no índice
+
+Agora podemos buscar no conjunto de dados usando qualquer consulta que quisermos. Simplesmente embutimos a consulta e apresentamos seu embedding ao índice, que recuperará a sentença mais semelhante do artigo da Wikipedia.
+
+Vamos definir nossa função de busca:
+
+```python
+def search(query, number_of_results=3):
+    # 1. Obter o embedding da consulta
+    query_embed = co.embed(texts=[query], input_type="search_query",).embeddings[0]
+    # 2. Recuperar os vizinhos mais próximos
+    distances, similar_item_ids = index.search(np.float32([query_embed]), number_of_results)
+    # 3. Formatar os resultados
+    texts_np = np.array(texts)  # Converter lista de textos para numpy para facilitar a indexação
+    results = pd.DataFrame(data={'texts': texts_np[similar_item_ids[0]], 'distance': distances[0]})
+    # 4. Imprimir e retornar os resultados
+    print(f"Query:'{query}'\nNearest neighbors:")
+    return results
+```
+
+Agora estamos prontos para escrever uma consulta e buscar os textos!
+
+```python
+query = "quão precisa era a ciência"
+results = search(query)
+results
+```
+
+Isso produz a seguinte saída:
+
+```
+Query: 'quão precisa era a ciência'
+Nearest neighbors:
+texts distance
+0 Também recebeu elogios de muitos astrônomos por sua precisão científica 10757.379883
+e retrato da astrofísica teórica
+1 O físico teórico do Caltech e laureado com o Nobel de Física em 2017[4] Kip 11566.131836
+Thorne foi produtor executivo, atuou como consultor científico e
+escreveu um livro complementar, A Ciência de Interestelar
+2 Interestelar usa extensivos efeitos práticos e em miniatura e a 11922.833008
+empresa Double Negative criou efeitos digitais adicionais
+```
+
+O primeiro resultado tem a menor distância e, portanto, é o mais semelhante à consulta. Olhando para ele, ele responde à pergunta perfeitamente. Note que isso não teria sido possível se estivéssemos apenas fazendo busca por palavras-chave, porque o resultado principal não incluía as mesmas palavras-chave na consulta.
+
+Podemos realmente verificar isso definindo uma função de busca por palavras-chave para comparar os dois. Usaremos o algoritmo BM25, que é um dos principais métodos de busca lexical. Veja este notebook para a fonte desses trechos de código:
+
+```python
+from rank_bm25 import BM25Okapi
+from sklearn.feature_extraction import _stop_words
+import string
+
+def bm25_tokenizer(text):
+    tokenized_doc = []
+    for token in text.lower().split():
+        token = token.strip(string.punctuation)
+        if len(token) > 0 and token not in _stop_words.ENGLISH_STOP_WORDS:
+            tokenized_doc.append(token)
+    return tokenized_doc
+
+tokenized_corpus = []
+for passage in tqdm(texts):
+    tokenized_corpus.append(bm25_tokenizer(passage))
+bm25 = BM25Okapi(tokenized_corpus)
+
+def keyword_search(query, top_k=3, num_candidates=15):
+    print("Input question:", query)
+    ##### BM25 search (lexical search) #####
+    bm25_scores = bm25.get_scores(bm25_tokenizer(query))
+    top_n = np.argpartition(bm25_scores, -num_candidates)[-num_candidates:]
+    bm25_hits = [{'corpus_id': idx, 'score': bm25_scores[idx]} for idx in top_n]
+    bm25_hits = sorted(bm25_hits, key=lambda x: x['score'], reverse=True)
+    print(f"Top-3 lexical search (BM25) hits")
+    for hit in bm25_hits[0:top_k]:
+        print("\t{:.3f}\t{}".format(hit['score'], texts[hit['corpus_id']].replace("\n", " ")))
+```
+
+Agora, quando buscamos pela mesma consulta, obtemos um conjunto diferente de resultados da busca por recuperação densa:
+
+```python
+keyword_search(query = "quão precisa era a ciência")
+```
+
+Resultados:
+
+```
+Input question: quão precisa era a ciência
+Top-3 lexical search (BM25) hits
+1.789 Interestelar é um filme épico de ficção científica de 2014 co-escrito, dirigido,
+1.373 O físico teórico do Caltech e laureado com o Nobel de Física em 2017[4] Kip
+0.000 Estrelado por Matthew McConaughey, Anne Hathaway, Jessica Chastain, Bill Irw
+```
+
+Note que o primeiro resultado não responde realmente à pergunta, apesar de compartilhar a palavra "ciência" com a consulta. Na próxima seção, veremos como adicionar um reranker pode melhorar esse sistema de busca. Mas antes disso, vamos completar nossa visão geral da recuperação densa olhando para suas limitações e passando por alguns métodos de dividir textos em pedaços.
+
+Limitações da Recuperação Densa
+
+É útil estar ciente de algumas das desvantagens da recuperação densa e como abordá-las. O que acontece, por exemplo, se os textos não contiverem a resposta? Ainda obtemos resultados e suas distâncias. Por exemplo:
+
+```
+Query: 'Qual é a massa da lua?'
+Nearest neighbors:
+texts distance
+0 O filme teve uma receita mundial de mais de $677 milhões (e $773 milhões com 1.298275
+re-lançamentos subsequentes), tornando-se o décimo filme de maior bilheteria de 2014
+1 Também recebeu elogios de muitos astrônomos por sua precisão científica 1.324389
+e retrato da astrofísica teórica
+2 O diretor de fotografia Hoyte van Hoytema filmou em película de 35 mm no 1.328375
+formato anamórfico da Panavision e IMAX 70 mm
+```
+
+Em casos como este, uma possível heurística é definir um nível de limite—uma distância máxima para relevância, por exemplo. Muitos sistemas de busca apresentam ao usuário a melhor informação que podem obter e deixam para o usuário decidir se é relevante ou não. Rastrear a informação de se o usuário clicou em um resultado (e ficou satisfeito com ele) pode melhorar versões futuras do sistema de busca.
+
+Outra limitação da recuperação densa é quando um usuário deseja encontrar uma correspondência exata para uma frase específica. Esse é um caso perfeito para correspondência de palavras-chave. Essa é uma das razões pelas quais a busca híbrida, que inclui tanto busca semântica quanto busca por palavras-chave, é aconselhada em vez de depender apenas da recuperação densa.
+
+Os sistemas de recuperação densa também acham desafiador funcionar corretamente em domínios diferentes daqueles em que foram treinados. Então, por exemplo, se você treinar um modelo de recuperação em dados da internet e da Wikipedia, e depois implantá-lo em textos jurídicos (sem ter dados jurídicos suficientes como parte do conjunto de treinamento), o modelo não funcionará tão bem nesse domínio jurídico.
+
+A última coisa que gostaríamos de apontar é que este é um caso onde cada sentença continha uma peça de informação, e mostramos consultas que especificamente pedem essa informação. E quanto a perguntas cujas respostas abrangem várias sentenças? Isso destaca um dos parâmetros de design importantes dos sistemas de recuperação densa: qual é a melhor maneira de dividir textos longos? E por que precisamos dividi-los em primeiro lugar?
+
+Dividindo Textos Longos
+
+Uma limitação dos modelos de linguagem Transformer é que eles são limitados em tamanhos de contexto, o que significa que não podemos alimentá-los com textos muito longos que excedam o número de palavras ou tokens que o modelo suporta. Então, como embutimos textos longos?
+
+Existem várias maneiras possíveis, e duas abordagens possíveis mostradas na Figura 8-7 incluem indexar um vetor por documento e indexar múltiplos vetores por documento.
+
+Figura 8-7. É possível criar um vetor representando um documento inteiro, mas é melhor para documentos mais longos serem divididos em pedaços menores que recebem seus próprios embeddings.
+
+Um vetor por documento
+
+Nesta abordagem, usamos um único vetor para representar o documento inteiro. As possibilidades aqui incluem:
+
+Embutir apenas uma parte representativa do documento e ignorar o restante do texto. Isso pode significar embutir apenas o título, ou apenas o início do documento. Isso é útil para começar rapidamente a construir uma demonstração, mas deixa muita informação não indexada e, portanto, não pesquisável. Como abordagem, pode funcionar melhor para documentos onde o início captura os pontos principais de um documento (pense: artigo da Wikipedia). Mas realmente não é a melhor abordagem para um sistema real porque muita informação seria deixada fora do índice e seria não pesquisável.
+
+Embutir o documento em pedaços, embutir esses pedaços e depois agregá-los em um único vetor. O método usual de agregação aqui é fazer a média desses vetores. Uma desvantagem dessa abordagem é que resulta em um vetor altamente comprimido que perde muita
